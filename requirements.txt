@@ -2,9 +2,8 @@ streamlit
 numpy
 pandas
 pillow
-opencv-python==4.6.0.66
 matplotlib
 seaborn
 plotly
 pyyaml
-ultralytics==8.0.113
+ultralytics
