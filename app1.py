@@ -11,7 +11,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from PIL import Image, ImageDraw, ImageFont
-import cv2
 
 from ultralytics import YOLO
 import plotly.express as px
@@ -788,4 +787,5 @@ st.markdown("""
     <p>🦴 Bone Fracture Detection System v1.0</p>
     <p>Powered by YOLOv11 | Built with Streamlit</p>
 </div>
+
 """, unsafe_allow_html=True)
