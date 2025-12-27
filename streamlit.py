@@ -450,20 +450,20 @@ with tab1:
         )
         
         if uploaded_file is not None:
-            # Load image
-            image = Image.open(uploaded_file).convert('RGB')
-            
-            st.image(image, caption='Uploaded X-Ray', use_container_width=True)
+            try:
+                # Load image safely
+                image = Image.open(uploaded_file).convert('RGB')
+                st.image(image, caption='Uploaded X-Ray', use_container_width=True)
+            except Exception as e:
+                st.error(f"Error loading uploaded image: {e}")
+                image = None
             
             # Detect button
-            if st.button("Run Detection", type="primary"):
+            if image is not None and st.button("Run Detection", type="primary"):
                 with st.spinner("Analyzing image..."):
-                    # Load model
                     model = load_model(selected_model)
-                    
                     if model is not None:
                         try:
-                            # Run inference
                             results = model.predict(
                                 source=image,
                                 conf=conf_threshold,
@@ -471,12 +471,10 @@ with tab1:
                                 verbose=False
                             )
                             
-                            # Draw detections
                             img_with_detections, detections = draw_detections(
                                 image, results, conf_threshold
                             )
                             
-                            # Store in session state
                             st.session_state.detections = detections
                             st.session_state.result_image = img_with_detections
                             
@@ -487,40 +485,33 @@ with tab1:
     with col2:
         st.markdown("#### 🔬 Detection Results")
         
-        if 'result_image' in st.session_state and 'detections' in st.session_state:
-            # Show result image
-            st.image(
-                st.session_state.result_image, 
-                caption='Detection Result',
-                use_container_width=True
-            )
-            
-            detections = st.session_state.detections
+        result_image = st.session_state.get('result_image', None)
+        detections = st.session_state.get('detections', None)
+        
+        if result_image is not None and detections is not None:
+            try:
+                # Konversi numpy ke RGB bila perlu
+                if isinstance(result_image, np.ndarray):
+                    result_image = cv2.cvtColor(result_image, cv2.COLOR_BGR2RGB)
+                
+                st.image(result_image, caption='Detection Result', use_container_width=True)
+            except Exception as e:
+                st.error(f"Error displaying detection image: {e}")
             
             if len(detections) > 0:
-                # Summary metrics
                 summary = create_detection_summary(detections)
                 
                 st.markdown("#### 📊 Summary")
-                
-                # Metrics row
                 met1, met2, met3 = st.columns(3)
                 met1.metric("Detections", summary['total_detections'])
                 met2.metric("Avg Confidence", f"{summary['avg_confidence']:.2%}")
                 met3.metric("Severity", summary['severity_label'])
                 
-                # Detection details
                 st.markdown("#### Detected Fractures")
-                
                 for i, det in enumerate(detections):
-                    severity_class = f"severity-{det['category'].lower().replace(' ', '-')}"
-                    if 'Normal' in det['category']:
-                        severity_class = 'severity-normal'
-                    elif 'Simple' in det['category']:
-                        severity_class = 'severity-simple'
-                    else:
-                        severity_class = 'severity-complex'
-                    
+                    severity_class = 'severity-normal' if 'Normal' in det['category'] else \
+                                     'severity-simple' if 'Simple' in det['category'] else \
+                                     'severity-complex'
                     st.markdown(f"""
                     <div class='{severity_class}'>
                         <strong>#{i+1}: {det['class']}</strong><br>
@@ -530,11 +521,8 @@ with tab1:
                     </div>
                     """, unsafe_allow_html=True)
                 
-                # Visualization
                 st.markdown("#### 📈 Distribution")
-                
                 df = pd.DataFrame(detections)
-                
                 fig = px.bar(
                     df['class'].value_counts().reset_index(),
                     x='class',
@@ -546,18 +534,15 @@ with tab1:
                 fig.update_layout(showlegend=False, height=300)
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # Download results
                 st.markdown("#### 💾 Export Results")
-                
                 col_a, col_b = st.columns(2)
                 
                 with col_a:
-                    # Save image dengan BytesIO untuk Streamlit Cloud
                     if st.button("📥 Download Image"):
                         try:
                             import io
                             buf = io.BytesIO()
-                            st.session_state.result_image.save(buf, format='JPEG')
+                            result_image.save(buf, format='JPEG')
                             st.download_button(
                                 label="Download Detection Image",
                                 data=buf.getvalue(),
@@ -568,7 +553,6 @@ with tab1:
                             st.error(f"Error saving image: {e}")
                 
                 with col_b:
-                    # Save JSON dengan download_button
                     if st.button("📄 Download JSON"):
                         try:
                             json_str = json.dumps(detections, indent=2)
@@ -586,14 +570,16 @@ with tab1:
             st.info("👆 Upload an image and click 'Run Detection' to see results")
 
 # TAB 2: DATASET EDA
+# TAB 2: EDA
 with tab2:
     st.markdown("### 📊 Dataset Exploratory Data Analysis")
     
-    # Find latest EDA (nested in output_fixed/timestamp/)
+    # Default paths
     eda_path = None
     samples_dir = None
     stats_path = None
     
+    # Cari EDA terbaru
     if models_dir.exists():
         try:
             latest = sorted(models_dir.iterdir(), reverse=True)
@@ -604,23 +590,22 @@ with tab2:
         except Exception as e:
             st.warning(f"Error finding EDA files: {e}")
     
+    # Tampilkan EDA utama
     if eda_path and eda_path.exists():
         try:
             st.image(str(eda_path), caption="Dataset Analysis", use_container_width=True)
         except Exception as e:
             st.error(f"Error loading EDA image: {e}")
         
-        # Show sample images
+        # Tampilkan sample images
         if samples_dir and samples_dir.exists():
             st.markdown("#### 🖼️ Sample Images from Dataset")
-            
             try:
                 sample_files = sorted(samples_dir.glob("sample_*.png"))
-                
                 if sample_files:
-                    # Display samples in grid (max 5)
-                    cols = st.columns(min(len(sample_files), 5))
-                    for idx, sample_file in enumerate(sample_files[:5]):
+                    max_display = min(len(sample_files), 5)
+                    cols = st.columns(max_display)
+                    for idx, sample_file in enumerate(sample_files[:max_display]):
                         try:
                             with cols[idx]:
                                 st.image(str(sample_file), caption=f"Sample {idx+1}", use_container_width=True)
@@ -629,7 +614,7 @@ with tab2:
             except Exception as e:
                 st.warning(f"Error loading samples: {e}")
         
-        # Show statistics
+        # Tampilkan statistik
         if stats_path and stats_path.exists():
             try:
                 st.markdown("#### 📄 Dataset Statistics")
@@ -643,38 +628,35 @@ with tab2:
     
     # Interactive class distribution
     st.markdown("#### Interactive Class Distribution")
-    
-    # Create sample data
-    class_counts = {name: np.random.randint(50, 200) for name in CLASS_NAMES}
-    
-    fig = go.Figure()
-    
-    for name, count in class_counts.items():
-        fig.add_trace(go.Bar(
-            name=name,
-            x=[name],
-            y=[count],
-            marker_color=COLORS[name],
-            text=[count],
-            textposition='auto',
-        ))
-    
-    fig.update_layout(
-        title="Class Distribution Overview",
-        xaxis_title="Fracture Type",
-        yaxis_title="Number of Samples",
-        showlegend=False,
-        height=500
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-
+    try:
+        class_counts = {name: np.random.randint(50, 200) for name in CLASS_NAMES}
+        fig = go.Figure()
+        for name, count in class_counts.items():
+            fig.add_trace(go.Bar(
+                name=name,
+                x=[name],
+                y=[count],
+                marker_color=COLORS.get(name, "#636EFA"),  # fallback warna
+                text=[count],
+                textposition='auto',
+            ))
+        fig.update_layout(
+            title="Class Distribution Overview",
+            xaxis_title="Fracture Type",
+            yaxis_title="Number of Samples",
+            showlegend=False,
+            height=500
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        st.error(f"Error creating class distribution chart: {e}")
 # TAB 3: TRAINING METRICS
 
+# TAB 3: Training Performance Metrics
 with tab3:
     st.markdown("### 📈 Training Performance Metrics")
     
-    # Find training results
+    # Cari path training terbaru
     training_path = None
     if models_dir.exists():
         try:
@@ -687,29 +669,34 @@ with tab3:
     if training_path and training_path.exists():
         col1, col2 = st.columns(2)
         
-        # Results
+        # Training curves
         results_img = training_path / "results.png"
         if results_img.exists():
-            with col1:
-                st.markdown("#### 📊 Training Curves")
-                try:
+            try:
+                with col1:
+                    st.markdown("#### 📊 Training Curves")
                     st.image(str(results_img), use_container_width=True)
-                except Exception as e:
-                    st.error(f"Error loading results: {e}")
+            except Exception as e:
+                st.error(f"Error loading training curves: {e}")
+        else:
+            with col1:
+                st.info("No training curves found.")
         
         # Confusion matrix
         confusion_img = training_path / "confusion_matrix.png"
         if confusion_img.exists():
-            with col2:
-                st.markdown("#### 🎯 Confusion Matrix")
-                try:
+            try:
+                with col2:
+                    st.markdown("#### 🎯 Confusion Matrix")
                     st.image(str(confusion_img), use_container_width=True)
-                except Exception as e:
-                    st.error(f"Error loading confusion matrix: {e}")
+            except Exception as e:
+                st.error(f"Error loading confusion matrix: {e}")
+        else:
+            with col2:
+                st.info("No confusion matrix found.")
         
-        # Show report
+        # Final report
         try:
-            latest = sorted(models_dir.iterdir(), reverse=True)
             if latest:
                 report_path = latest[0] / "04_reports" / "final_report.txt"
                 if report_path.exists():
@@ -717,10 +704,13 @@ with tab3:
                     with open(report_path, 'r', encoding='utf-8') as f:
                         report = f.read()
                     st.code(report, language='text')
+                else:
+                    st.info("No final report found.")
         except Exception as e:
-            st.warning(f"Could not load report: {e}")
+            st.warning(f"Could not load training report: {e}")
     else:
-        st.warning("⚠️ No training metrics found. Train a model first using main_fixed.py")
+        st.warning("⚠️ No training metrics found. Please train a model first using main_fixed.py.")
+
 
 # TAB 4: BATCH INFERENCE
 
@@ -875,3 +865,4 @@ st.markdown("""
     <p>Powered by YOLOv11 | Built with Streamlit</p>
 </div>
 """, unsafe_allow_html=True)
+
