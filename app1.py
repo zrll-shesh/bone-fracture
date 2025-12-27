@@ -11,7 +11,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from PIL import Image, ImageDraw, ImageFont
-import cv2
 from ultralytics import YOLO
 import plotly.express as px
 import plotly.graph_objects as go
@@ -789,4 +788,5 @@ st.markdown("""
 </div>
 
 """, unsafe_allow_html=True)
+
 
