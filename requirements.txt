@@ -1,5 +1,4 @@
 streamlit
-ultralytics
 numpy
 pandas
 pillow
@@ -8,4 +7,4 @@ matplotlib
 seaborn
 plotly
 pyyaml
- 
+ultralytics==8.0.140
