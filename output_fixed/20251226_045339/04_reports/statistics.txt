@@ -1,0 +1,16 @@
+DATASET STATISTICS
+============================================================
+
+Total Instances: 770
+Classes: 10
+
+Comminuted               :    92 (11.95%)
+Greenstick               :    45 ( 5.84%)
+Healthy                  :    24 ( 3.12%)
+Linear                   :     8 ( 1.04%)
+Oblique Displaced        :   179 (23.25%)
+Oblique                  :    22 ( 2.86%)
+Segmental                :     8 ( 1.04%)
+Spiral                   :    34 ( 4.42%)
+Transverse Displaced     :   300 (38.96%)
+Transverse               :    58 ( 7.53%)

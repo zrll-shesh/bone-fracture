@@ -1,0 +1,16 @@
+names:
+- Comminuted
+- Greenstick
+- Healthy
+- Linear
+- Oblique Displaced
+- Oblique
+- Segmental
+- Spiral
+- Transverse Displaced
+- Transverse
+nc: 10
+path: C:\Users\LENOVO\Downloads\object detection esai\Human Bone\Bone_Fractures_Detection\output_fixed\20251226_045339\sampled_data
+test: test
+train: train
+val: val
