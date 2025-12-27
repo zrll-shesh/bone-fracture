@@ -1,0 +1,17 @@
+streamlit
+
+ultralytics
+
+numpy
+pandas
+
+pillow
+
+opencv-python-headless
+
+matplotlib
+seaborn
+
+plotly
+
+pyyaml
