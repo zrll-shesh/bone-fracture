@@ -6,11 +6,10 @@ import yaml
 from datetime import datetime
 import json
 import os
+import sys
 
 import numpy as np
 import pandas as pd
-import matplotlib
-matplotlib.use('Agg')  # Fix untuk Streamlit Cloud
 import matplotlib.pyplot as plt
 import seaborn as sns
 from PIL import Image, ImageDraw, ImageFont
@@ -21,8 +20,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from collections import Counter
 
-# PAGE CONFIG - HARUS DI PALING ATAS
-
+# PAGE CONFIG
 st.set_page_config(
     page_title="BFD-ID (Bone Fracture Detection)",
     page_icon="⚕️",
@@ -80,11 +78,11 @@ st.markdown("""
     .severity-simple,
     .severity-complex {
         padding: 16px;
-        margin: 8px 0;
+        margin: 8px 0;              /* DIPERKETAT */
         border-radius: 10px;
         font-size: 15px;
         font-weight: 500;
-        line-height: 1.3;
+        line-height: 1.3;           /* DIPERKETAT */
         box-shadow: 0 3px 10px rgba(0, 0, 0, 0.12);
     }
 
@@ -106,13 +104,13 @@ st.markdown("""
         color: #c62828;
     }
 
-    /* ================= TITLE INSIDE CARD ================= */
+    /* ================= TITLE INSIDE CARD (FIX SPACE UTAMA) ================= */
     .severity-normal strong,
     .severity-simple strong,
     .severity-complex strong {
-        display: inline-block;
-        margin: 0;
-        padding: 0;
+        display: inline-block;      /* FIX SPACE */
+        margin: 0;                  /* FIX SPACE */
+        padding: 0;                 /* FIX SPACE */
         font-size: 17px;
         font-weight: 700;
         line-height: 1.2;
@@ -150,7 +148,10 @@ st.markdown("""
 
 # CONFIGURATION
 
-ROOT = Path(__file__).resolve().parent
+# PERBAIKAN 1: Gunakan Path yang lebih aman untuk Streamlit Cloud
+ROOT = Path(__file__).resolve().parent if "__file__" in locals() else Path.cwd()
+
+# PERBAIKAN 2: Handle file paths secara lebih aman
 DATA_YAML = ROOT / "data.yaml"
 
 # Class names from your data.yaml
@@ -210,13 +211,25 @@ MEDICAL_INFO = {
 def load_model(model_path):
     """Load YOLO model with caching"""
     try:
-        if model_path == "yolo11s.pt":
+        # PERBAIKAN 3: Handle model path lebih baik
+        if isinstance(model_path, str) and model_path == "yolo11s.pt":
+            # Coba load dari local atau download
             model = YOLO(model_path)
         else:
-            model = YOLO(str(model_path))
+            # Convert Path ke string
+            model_path_str = str(model_path) if isinstance(model_path, Path) else model_path
+            # PERBAIKAN 4: Cek apakah file model ada
+            if not os.path.exists(model_path_str):
+                st.error(f"❌ Model file not found: {model_path_str}")
+                # Fallback ke model YOLO default
+                st.warning("⚠️ Using default YOLO11s model as fallback")
+                model = YOLO("yolo11s.pt")
+            else:
+                model = YOLO(model_path_str)
         return model
     except Exception as e:
         st.error(f"❌ Error loading model: {e}")
+        # PERBAIKAN 5: Return None agar aplikasi tetap berjalan
         return None
 
 def get_category(class_name):
@@ -243,21 +256,30 @@ def draw_detections(image, results, conf_threshold=0.25):
     
     detections = []
     
-    if len(results) > 0 and results[0].boxes is not None:
+    # PERBAIKAN 6: Handle results dengan lebih aman
+    if results and len(results) > 0 and hasattr(results[0], 'boxes') and results[0].boxes is not None:
         boxes = results[0].boxes
         
         for box in boxes:
+            # PERBAIKAN 7: Cek apakah box memiliki data
+            if box.xyxy is None or len(box.xyxy) == 0:
+                continue
+                
             # Get box data
             x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-            conf = float(box.conf[0])
-            cls = int(box.cls[0])
+            conf = float(box.conf[0]) if box.conf is not None else 0.0
+            cls = int(box.cls[0]) if box.cls is not None else 0
             
             if conf < conf_threshold:
                 continue
             
             # Get class info
-            class_name = CLASS_NAMES[cls]
-            color = COLORS[class_name]
+            if cls < len(CLASS_NAMES):
+                class_name = CLASS_NAMES[cls]
+            else:
+                class_name = f"Class_{cls}"
+                
+            color = COLORS.get(class_name, '#000000')
             category = get_category(class_name)
             
             # Draw box
@@ -265,27 +287,25 @@ def draw_detections(image, results, conf_threshold=0.25):
             
             # Draw label with background
             label = f"{class_name} {conf:.2f}"
-            
-            # Fix: Gunakan font default jika arial tidak tersedia
             try:
-                font = ImageFont.truetype("arial.ttf", 16)
-            except (IOError, OSError):
+                # PERBAIKAN 8: Gunakan font default yang tersedia di Streamlit
+                font = ImageFont.truetype("Arial", 16)
+            except:
                 try:
-                    # Coba font lain yang mungkin ada
-                    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
-                except (IOError, OSError):
+                    font = ImageFont.truetype("arial.ttf", 16)
+                except:
                     font = ImageFont.load_default()
             
-            # Fix: Gunakan textbbox dengan error handling
+            # Calculate text bbox
             try:
                 bbox = draw.textbbox((x1, y1-25), label, font=font)
-            except AttributeError:
-                # Fallback untuk versi PIL lama
-                text_width, text_height = draw.textsize(label, font=font)
-                bbox = [x1, y1-25, x1 + text_width, y1-25 + text_height]
-            
-            draw.rectangle([bbox[0]-5, bbox[1]-5, bbox[2]+5, bbox[3]+5], fill=color)
-            draw.text((x1, y1-25), label, fill='white', font=font)
+                draw.rectangle([bbox[0]-5, bbox[1]-5, bbox[2]+5, bbox[3]+5], fill=color)
+                draw.text((x1, y1-25), label, fill='white', font=font)
+            except:
+                # Fallback jika textbbox tidak tersedia
+                text_width = len(label) * 8
+                draw.rectangle([x1-5, y1-30, x1+text_width+5, y1-5], fill=color)
+                draw.text((x1, y1-25), label, fill='white', font=font)
             
             # Store detection
             detections.append({
@@ -310,11 +330,20 @@ def create_detection_summary(detections):
         'total_detections': len(detections),
         'by_category': df['category'].value_counts().to_dict(),
         'by_class': df['class'].value_counts().to_dict(),
-        'avg_confidence': df['confidence'].mean(),
-        'max_severity': df['severity'].max(),
-        'severity_label': 'Normal' if df['severity'].max() == 1 else 
-                         'Simple' if df['severity'].max() == 2 else 'Complex'
+        'avg_confidence': float(df['confidence'].mean()) if len(df) > 0 else 0.0,
+        'max_severity': int(df['severity'].max()) if len(df) > 0 else 0,
+        'severity_label': 'Normal'
     }
+    
+    # PERBAIKAN 9: Handle severity label dengan aman
+    if len(df) > 0:
+        max_sev = df['severity'].max()
+        if max_sev == 1:
+            summary['severity_label'] = 'Normal'
+        elif max_sev == 2:
+            summary['severity_label'] = 'Simple'
+        elif max_sev == 3:
+            summary['severity_label'] = 'Complex'
     
     return summary
 
@@ -330,7 +359,7 @@ st.sidebar.markdown("### 🤖 Model Settings")
 model_options = ["yolo11s.pt"]
 models_dir = ROOT / "output_fixed"
 
-# Find trained models - dengan error handling
+# PERBAIKAN 10: Cek apakah directory ada
 if models_dir.exists():
     try:
         for output_folder in sorted(models_dir.iterdir(), reverse=True):
@@ -340,7 +369,7 @@ if models_dir.exists():
                     timestamp = output_folder.name
                     model_options.append(f"Trained Model ({timestamp})")
     except Exception as e:
-        st.sidebar.warning(f"Error scanning models: {e}")
+        st.sidebar.warning(f"⚠️ Error scanning models: {e}")
                 
 selected_model_display = st.sidebar.selectbox(
     "Select Model",
@@ -352,8 +381,13 @@ selected_model_display = st.sidebar.selectbox(
 if selected_model_display == "yolo11s.pt":
     selected_model = "yolo11s.pt"
 else:
-    timestamp = selected_model_display.split("(")[1].split(")")[0]
-    selected_model = models_dir / timestamp / "03_models" / "best_model.pt"
+    try:
+        timestamp = selected_model_display.split("(")[1].split(")")[0]
+        selected_model = models_dir / timestamp / "03_models" / "best_model.pt"
+    except:
+        # Fallback ke model default jika parsing gagal
+        selected_model = "yolo11s.pt"
+        st.sidebar.warning("⚠️ Using default model")
 
 # Detection settings
 st.sidebar.markdown("### ⚙️ Detection Settings")
@@ -392,7 +426,7 @@ with st.sidebar.expander("🔍 View All Classes"):
 
 # About
 st.sidebar.markdown("---")
-with st.sidebar.expander("ℹ️ About"):
+with st.sidebar.expander("ℹAbout"):
     st.markdown("""
     **Bone Fracture Detection System**
     
@@ -451,19 +485,19 @@ with tab1:
         
         if uploaded_file is not None:
             try:
-                # Load image safely
+                # Load image
                 image = Image.open(uploaded_file).convert('RGB')
+                
                 st.image(image, caption='Uploaded X-Ray', use_container_width=True)
-            except Exception as e:
-                st.error(f"Error loading uploaded image: {e}")
-                image = None
-            
-            # Detect button
-            if image is not None and st.button("Run Detection", type="primary"):
-                with st.spinner("Analyzing image..."):
-                    model = load_model(selected_model)
-                    if model is not None:
-                        try:
+                
+                # Detect button
+                if st.button("Run Detection", type="primary"):
+                    with st.spinner("Analyzing image..."):
+                        # Load model
+                        model = load_model(selected_model)
+                        
+                        if model is not None:
+                            # Run inference
                             results = model.predict(
                                 source=image,
                                 conf=conf_threshold,
@@ -471,115 +505,146 @@ with tab1:
                                 verbose=False
                             )
                             
+                            # Draw detections
                             img_with_detections, detections = draw_detections(
                                 image, results, conf_threshold
                             )
                             
+                            # Store in session state
                             st.session_state.detections = detections
                             st.session_state.result_image = img_with_detections
                             
                             st.success(f"Detection complete! Found {len(detections)} object(s)")
-                        except Exception as e:
-                            st.error(f"Error during detection: {e}")
+            except Exception as e:
+                st.error(f"❌ Error processing image: {e}")
     
     with col2:
         st.markdown("#### 🔬 Detection Results")
         
-        result_image = st.session_state.get('result_image', None)
-        detections = st.session_state.get('detections', None)
-        
-        if result_image is not None and detections is not None:
+        if 'result_image' in st.session_state and 'detections' in st.session_state:
+            # Show result image
             try:
-                # Konversi numpy ke RGB bila perlu
-                if isinstance(result_image, np.ndarray):
-                    result_image = cv2.cvtColor(result_image, cv2.COLOR_BGR2RGB)
-                
-                st.image(result_image, caption='Detection Result', use_container_width=True)
+                st.image(
+                    st.session_state.result_image, 
+                    caption='Detection Result',
+                    use_container_width=True
+                )
             except Exception as e:
-                st.error(f"Error displaying detection image: {e}")
+                st.error(f"❌ Error displaying result image: {e}")
+            
+            detections = st.session_state.detections
             
             if len(detections) > 0:
+                # Summary metrics
                 summary = create_detection_summary(detections)
                 
-                st.markdown("#### 📊 Summary")
-                met1, met2, met3 = st.columns(3)
-                met1.metric("Detections", summary['total_detections'])
-                met2.metric("Avg Confidence", f"{summary['avg_confidence']:.2%}")
-                met3.metric("Severity", summary['severity_label'])
-                
-                st.markdown("#### Detected Fractures")
-                for i, det in enumerate(detections):
-                    severity_class = 'severity-normal' if 'Normal' in det['category'] else \
-                                     'severity-simple' if 'Simple' in det['category'] else \
-                                     'severity-complex'
-                    st.markdown(f"""
-                    <div class='{severity_class}'>
-                        <strong>#{i+1}: {det['class']}</strong><br>
-                        📍 Category: {det['category']}<br>
-                        📊 Confidence: {det['confidence']:.2%}<br>
-                        ℹ️ {det['description']}
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                st.markdown("#### 📈 Distribution")
-                df = pd.DataFrame(detections)
-                fig = px.bar(
-                    df['class'].value_counts().reset_index(),
-                    x='class',
-                    y='count',
-                    color='class',
-                    color_discrete_map=COLORS,
-                    title='Detection Count by Class'
-                )
-                fig.update_layout(showlegend=False, height=300)
-                st.plotly_chart(fig, use_container_width=True)
-                
-                st.markdown("#### 💾 Export Results")
-                col_a, col_b = st.columns(2)
-                
-                with col_a:
-                    if st.button("📥 Download Image"):
-                        try:
-                            import io
-                            buf = io.BytesIO()
-                            result_image.save(buf, format='JPEG')
-                            st.download_button(
-                                label="Download Detection Image",
-                                data=buf.getvalue(),
-                                file_name="detection_result.jpg",
-                                mime="image/jpeg"
-                            )
-                        except Exception as e:
-                            st.error(f"Error saving image: {e}")
-                
-                with col_b:
-                    if st.button("📄 Download JSON"):
-                        try:
-                            json_str = json.dumps(detections, indent=2)
-                            st.download_button(
-                                label="Download Detection JSON",
-                                data=json_str,
-                                file_name="detection_result.json",
-                                mime="application/json"
-                            )
-                        except Exception as e:
-                            st.error(f"Error creating JSON: {e}")
+                if summary:
+                    st.markdown("#### 📊 Summary")
+                    
+                    # Metrics row
+                    met1, met2, met3 = st.columns(3)
+                    met1.metric("Detections", summary['total_detections'])
+                    met2.metric("Avg Confidence", f"{summary['avg_confidence']:.2%}")
+                    met3.metric("Severity", summary['severity_label'])
+                    
+                    # Detection details
+                    st.markdown("####  Detected Fractures")
+                    
+                    for i, det in enumerate(detections):
+                        # Determine severity class
+                        if 'Normal' in det['category']:
+                            severity_class = 'severity-normal'
+                        elif 'Simple' in det['category']:
+                            severity_class = 'severity-simple'
+                        else:
+                            severity_class = 'severity-complex'
+                        
+                        st.markdown(f"""
+                        <div class='{severity_class}'>
+                            <strong>#{i+1}: {det['class']}</strong><br>
+                            📍 Category: {det['category']}<br>
+                            📊 Confidence: {det['confidence']:.2%}<br>
+                            ℹ️ {det['description']}
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    # Visualization
+                    st.markdown("#### 📈 Distribution")
+                    
+                    df = pd.DataFrame(detections)
+                    
+                    try:
+                        class_counts = df['class'].value_counts().reset_index()
+                        class_counts.columns = ['class', 'count']
+                        
+                        fig = px.bar(
+                            class_counts,
+                            x='class',
+                            y='count',
+                            color='class',
+                            color_discrete_map=COLORS,
+                            title='Detection Count by Class'
+                        )
+                        fig.update_layout(showlegend=False, height=300)
+                        st.plotly_chart(fig, use_container_width=True)
+                    except Exception as e:
+                        st.warning(f"⚠️ Could not create distribution chart: {e}")
+                    
+                    # Download results
+                    st.markdown("#### 💾 Export Results")
+                    
+                    col_a, col_b = st.columns(2)
+                    
+                    with col_a:
+                        # Save image
+                        if st.button("📥 Download Image"):
+                            try:
+                                result_path = ROOT / "detection_result.jpg"
+                                st.session_state.result_image.save(result_path)
+                                
+                                # Create download button
+                                with open(result_path, "rb") as file:
+                                    st.download_button(
+                                        label="Download Image",
+                                        data=file,
+                                        file_name="detection_result.jpg",
+                                        mime="image/jpeg"
+                                    )
+                            except Exception as e:
+                                st.error(f"❌ Error saving image: {e}")
+                    
+                    with col_b:
+                        # Save JSON
+                        if st.button("📄 Download JSON"):
+                            try:
+                                json_path = ROOT / "detection_result.json"
+                                with open(json_path, 'w') as f:
+                                    json.dump(detections, f, indent=2)
+                                
+                                # Create download button
+                                with open(json_path, "rb") as file:
+                                    st.download_button(
+                                        label="Download JSON",
+                                        data=file,
+                                        file_name="detection_result.json",
+                                        mime="application/json"
+                                    )
+                            except Exception as e:
+                                st.error(f"❌ Error saving JSON: {e}")
             else:
                 st.info("No fractures detected in this image.")
         else:
             st.info("👆 Upload an image and click 'Run Detection' to see results")
 
 # TAB 2: DATASET EDA
-# TAB 2: EDA
 with tab2:
     st.markdown("### 📊 Dataset Exploratory Data Analysis")
     
-    # Default paths
+    # Find latest EDA (nested in output_fixed/timestamp/)
     eda_path = None
     samples_dir = None
     stats_path = None
     
-    # Cari EDA terbaru
     if models_dir.exists():
         try:
             latest = sorted(models_dir.iterdir(), reverse=True)
@@ -588,33 +653,34 @@ with tab2:
                 samples_dir = latest[0] / "01_eda" / "samples"
                 stats_path = latest[0] / "04_reports" / "statistics.txt"
         except Exception as e:
-            st.warning(f"Error finding EDA files: {e}")
+            st.warning(f"⚠️ Error finding EDA data: {e}")
     
-    # Tampilkan EDA utama
     if eda_path and eda_path.exists():
         try:
             st.image(str(eda_path), caption="Dataset Analysis", use_container_width=True)
         except Exception as e:
-            st.error(f"Error loading EDA image: {e}")
+            st.error(f"❌ Error loading EDA image: {e}")
         
-        # Tampilkan sample images
+        # Show sample images
         if samples_dir and samples_dir.exists():
             st.markdown("#### 🖼️ Sample Images from Dataset")
+            
             try:
                 sample_files = sorted(samples_dir.glob("sample_*.png"))
+                
                 if sample_files:
-                    max_display = min(len(sample_files), 5)
-                    cols = st.columns(max_display)
-                    for idx, sample_file in enumerate(sample_files[:max_display]):
+                    # Display samples in grid (max 5)
+                    cols = st.columns(min(len(sample_files), 5))
+                    for idx, sample_file in enumerate(sample_files[:5]):
                         try:
                             with cols[idx]:
                                 st.image(str(sample_file), caption=f"Sample {idx+1}", use_container_width=True)
                         except Exception as e:
                             st.warning(f"Could not load {sample_file.name}")
             except Exception as e:
-                st.warning(f"Error loading samples: {e}")
+                st.warning(f"⚠️ Error loading samples: {e}")
         
-        # Tampilkan statistik
+        # Show statistics
         if stats_path and stats_path.exists():
             try:
                 st.markdown("#### 📄 Dataset Statistics")
@@ -622,24 +688,29 @@ with tab2:
                     stats = f.read()
                 st.code(stats, language='text')
             except Exception as e:
-                st.warning(f"Could not load statistics: {e}")
+                st.warning(f"⚠️ Could not load statistics: {e}")
     else:
         st.warning("No EDA data found. Please run main_fixed.py first.")
     
     # Interactive class distribution
     st.markdown("#### Interactive Class Distribution")
+    
     try:
+        # Create sample data
         class_counts = {name: np.random.randint(50, 200) for name in CLASS_NAMES}
+        
         fig = go.Figure()
+        
         for name, count in class_counts.items():
             fig.add_trace(go.Bar(
                 name=name,
                 x=[name],
                 y=[count],
-                marker_color=COLORS.get(name, "#636EFA"),  # fallback warna
+                marker_color=COLORS.get(name, '#000000'),
                 text=[count],
                 textposition='auto',
             ))
+        
         fig.update_layout(
             title="Class Distribution Overview",
             xaxis_title="Fracture Type",
@@ -647,16 +718,16 @@ with tab2:
             showlegend=False,
             height=500
         )
+        
         st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
-        st.error(f"Error creating class distribution chart: {e}")
-# TAB 3: TRAINING METRICS
+        st.error(f"❌ Error creating distribution chart: {e}")
 
-# TAB 3: Training Performance Metrics
+# TAB 3: TRAINING METRICS
 with tab3:
     st.markdown("### 📈 Training Performance Metrics")
     
-    # Cari path training terbaru
+    # Find training results
     training_path = None
     if models_dir.exists():
         try:
@@ -664,56 +735,48 @@ with tab3:
             if latest:
                 training_path = latest[0] / "training"
         except Exception as e:
-            st.warning(f"Error finding training path: {e}")
+            st.warning(f"⚠️ Error finding training data: {e}")
     
     if training_path and training_path.exists():
         col1, col2 = st.columns(2)
         
-        # Training curves
+        # Results
         results_img = training_path / "results.png"
         if results_img.exists():
-            try:
-                with col1:
-                    st.markdown("#### 📊 Training Curves")
-                    st.image(str(results_img), use_container_width=True)
-            except Exception as e:
-                st.error(f"Error loading training curves: {e}")
-        else:
             with col1:
-                st.info("No training curves found.")
+                st.markdown("#### 📊 Training Curves")
+                try:
+                    st.image(str(results_img), use_container_width=True)
+                except Exception as e:
+                    st.error(f"❌ Error loading results image: {e}")
         
         # Confusion matrix
         confusion_img = training_path / "confusion_matrix.png"
         if confusion_img.exists():
-            try:
-                with col2:
-                    st.markdown("#### 🎯 Confusion Matrix")
-                    st.image(str(confusion_img), use_container_width=True)
-            except Exception as e:
-                st.error(f"Error loading confusion matrix: {e}")
-        else:
             with col2:
-                st.info("No confusion matrix found.")
+                st.markdown("#### 🎯 Confusion Matrix")
+                try:
+                    st.image(str(confusion_img), use_container_width=True)
+                except Exception as e:
+                    st.error(f"❌ Error loading confusion matrix: {e}")
         
-        # Final report
-        try:
-            if latest:
-                report_path = latest[0] / "04_reports" / "final_report.txt"
-                if report_path.exists():
-                    st.markdown("#### 📄 Training Report")
-                    with open(report_path, 'r', encoding='utf-8') as f:
-                        report = f.read()
-                    st.code(report, language='text')
-                else:
-                    st.info("No final report found.")
-        except Exception as e:
-            st.warning(f"Could not load training report: {e}")
+        # Show report
+        report_path = None
+        if latest and len(latest) > 0:
+            report_path = latest[0] / "04_reports" / "final_report.txt"
+        
+        if report_path and report_path.exists():
+            st.markdown("#### 📄 Training Report")
+            try:
+                with open(report_path, 'r', encoding='utf-8') as f:
+                    report = f.read()
+                st.code(report, language='text')
+            except Exception as e:
+                st.warning(f"⚠️ Could not load report: {e}")
     else:
-        st.warning("⚠️ No training metrics found. Please train a model first using main_fixed.py.")
-
+        st.warning("⚠️ No training metrics found. Train a model first using main_fixed.py")
 
 # TAB 4: BATCH INFERENCE
-
 with tab4:
     st.markdown("### 🎯 Batch Inference")
     st.markdown("Process multiple X-ray images at once")
@@ -734,8 +797,8 @@ with tab4:
                 progress_bar = st.progress(0)
                 results_data = []
                 
-                try:
-                    for idx, file in enumerate(uploaded_files):
+                for idx, file in enumerate(uploaded_files):
+                    try:
                         image = Image.open(file).convert('RGB')
                         
                         # Predict
@@ -752,15 +815,24 @@ with tab4:
                             'filename': file.name,
                             'detections': len(detections),
                             'classes': [d['class'] for d in detections],
-                            'confidences': [d['confidence'] for d in detections]
+                            'confidences': [d['confidence'] for d in detections] if detections else []
                         })
                         
                         progress_bar.progress((idx + 1) / len(uploaded_files))
-                    
-                    # Show results
-                    st.success(f"✅ Processed {len(uploaded_files)} images!")
-                    
-                    # Summary table
+                    except Exception as e:
+                        st.warning(f"⚠️ Error processing {file.name}: {e}")
+                        results_data.append({
+                            'filename': file.name,
+                            'detections': 0,
+                            'classes': [],
+                            'confidences': []
+                        })
+                
+                # Show results
+                st.success(f"✅ Processed {len(uploaded_files)} images!")
+                
+                # Summary table
+                try:
                     df_results = pd.DataFrame([
                         {
                             'Filename': r['filename'],
@@ -776,11 +848,23 @@ with tab4:
                     # Statistics
                     total_detections = sum(r['detections'] for r in results_data)
                     st.metric("Total Detections", total_detections)
+                    
+                    # Download CSV
+                    if st.button("📥 Download Results as CSV"):
+                        csv_path = ROOT / "batch_results.csv"
+                        df_results.to_csv(csv_path, index=False)
+                        
+                        with open(csv_path, "rb") as file:
+                            st.download_button(
+                                label="Download CSV",
+                                data=file,
+                                file_name="batch_results.csv",
+                                mime="text/csv"
+                            )
                 except Exception as e:
-                    st.error(f"Error during batch processing: {e}")
+                    st.error(f"❌ Error creating results table: {e}")
 
 # TAB 5: DOCUMENTATION
-
 with tab5:
     st.markdown("### 📚 Documentation")
     
@@ -857,7 +941,6 @@ with tab5:
     """)
 
 # FOOTER
-
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #7f8c8d;'>
@@ -865,4 +948,3 @@ st.markdown("""
     <p>Powered by YOLOv11 | Built with Streamlit</p>
 </div>
 """, unsafe_allow_html=True)
-
