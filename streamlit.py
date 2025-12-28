@@ -148,10 +148,10 @@ st.markdown("""
 
 # CONFIGURATION
 
-# PERBAIKAN 1: Gunakan Path yang lebih aman untuk Streamlit Cloud
+# Gunakan Path yang lebih aman untuk Streamlit Cloud
 ROOT = Path(__file__).resolve().parent if "__file__" in locals() else Path.cwd()
 
-# PERBAIKAN 2: Handle file paths secara lebih aman
+# Handle file paths secara lebih aman
 DATA_YAML = ROOT / "data.yaml"
 
 # Class names from your data.yaml
@@ -211,17 +211,12 @@ MEDICAL_INFO = {
 def load_model(model_path):
     """Load YOLO model with caching"""
     try:
-        # PERBAIKAN 3: Handle model path lebih baik
         if isinstance(model_path, str) and model_path == "yolo11s.pt":
-            # Coba load dari local atau download
             model = YOLO(model_path)
         else:
-            # Convert Path ke string
             model_path_str = str(model_path) if isinstance(model_path, Path) else model_path
-            # PERBAIKAN 4: Cek apakah file model ada
             if not os.path.exists(model_path_str):
                 st.error(f"❌ Model file not found: {model_path_str}")
-                # Fallback ke model YOLO default
                 st.warning("⚠️ Using default YOLO11s model as fallback")
                 model = YOLO("yolo11s.pt")
             else:
@@ -229,7 +224,6 @@ def load_model(model_path):
         return model
     except Exception as e:
         st.error(f"❌ Error loading model: {e}")
-        # PERBAIKAN 5: Return None agar aplikasi tetap berjalan
         return None
 
 def get_category(class_name):
@@ -256,16 +250,13 @@ def draw_detections(image, results, conf_threshold=0.25):
     
     detections = []
     
-    # PERBAIKAN 6: Handle results dengan lebih aman
     if results and len(results) > 0 and hasattr(results[0], 'boxes') and results[0].boxes is not None:
         boxes = results[0].boxes
         
         for box in boxes:
-            # PERBAIKAN 7: Cek apakah box memiliki data
             if box.xyxy is None or len(box.xyxy) == 0:
                 continue
                 
-            # Get box data
             x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
             conf = float(box.conf[0]) if box.conf is not None else 0.0
             cls = int(box.cls[0]) if box.cls is not None else 0
@@ -273,7 +264,6 @@ def draw_detections(image, results, conf_threshold=0.25):
             if conf < conf_threshold:
                 continue
             
-            # Get class info
             if cls < len(CLASS_NAMES):
                 class_name = CLASS_NAMES[cls]
             else:
@@ -288,7 +278,6 @@ def draw_detections(image, results, conf_threshold=0.25):
             # Draw label with background
             label = f"{class_name} {conf:.2f}"
             try:
-                # PERBAIKAN 8: Gunakan font default yang tersedia di Streamlit
                 font = ImageFont.truetype("Arial", 16)
             except:
                 try:
@@ -296,13 +285,11 @@ def draw_detections(image, results, conf_threshold=0.25):
                 except:
                     font = ImageFont.load_default()
             
-            # Calculate text bbox
             try:
                 bbox = draw.textbbox((x1, y1-25), label, font=font)
                 draw.rectangle([bbox[0]-5, bbox[1]-5, bbox[2]+5, bbox[3]+5], fill=color)
                 draw.text((x1, y1-25), label, fill='white', font=font)
             except:
-                # Fallback jika textbbox tidak tersedia
                 text_width = len(label) * 8
                 draw.rectangle([x1-5, y1-30, x1+text_width+5, y1-5], fill=color)
                 draw.text((x1, y1-25), label, fill='white', font=font)
@@ -335,7 +322,6 @@ def create_detection_summary(detections):
         'severity_label': 'Normal'
     }
     
-    # PERBAIKAN 9: Handle severity label dengan aman
     if len(df) > 0:
         max_sev = df['severity'].max()
         if max_sev == 1:
@@ -359,7 +345,6 @@ st.sidebar.markdown("### 🤖 Model Settings")
 model_options = ["yolo11s.pt"]
 models_dir = ROOT / "output_fixed"
 
-# PERBAIKAN 10: Cek apakah directory ada
 if models_dir.exists():
     try:
         for output_folder in sorted(models_dir.iterdir(), reverse=True):
@@ -385,7 +370,6 @@ else:
         timestamp = selected_model_display.split("(")[1].split(")")[0]
         selected_model = models_dir / timestamp / "03_models" / "best_model.pt"
     except:
-        # Fallback ke model default jika parsing gagal
         selected_model = "yolo11s.pt"
         st.sidebar.warning("⚠️ Using default model")
 
@@ -488,7 +472,8 @@ with tab1:
                 # Load image
                 image = Image.open(uploaded_file).convert('RGB')
                 
-                st.image(image, caption='Uploaded X-Ray', use_container_width=True)
+                # PERBAIKAN: Gunakan width parameter atau tanpa parameter khusus
+                st.image(image, caption='Uploaded X-Ray', width=500)
                 
                 # Detect button
                 if st.button("Run Detection", type="primary"):
@@ -524,11 +509,8 @@ with tab1:
         if 'result_image' in st.session_state and 'detections' in st.session_state:
             # Show result image
             try:
-                st.image(
-                    st.session_state.result_image, 
-                    caption='Detection Result',
-                    use_container_width=True
-                )
+                # PERBAIKAN: Tanpa use_container_width
+                st.image(st.session_state.result_image, caption='Detection Result', width=500)
             except Exception as e:
                 st.error(f"❌ Error displaying result image: {e}")
             
@@ -571,9 +553,8 @@ with tab1:
                     # Visualization
                     st.markdown("#### 📈 Distribution")
                     
-                    df = pd.DataFrame(detections)
-                    
                     try:
+                        df = pd.DataFrame(detections)
                         class_counts = df['class'].value_counts().reset_index()
                         class_counts.columns = ['class', 'count']
                         
@@ -586,7 +567,7 @@ with tab1:
                             title='Detection Count by Class'
                         )
                         fig.update_layout(showlegend=False, height=300)
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig)
                     except Exception as e:
                         st.warning(f"⚠️ Could not create distribution chart: {e}")
                     
@@ -657,7 +638,8 @@ with tab2:
     
     if eda_path and eda_path.exists():
         try:
-            st.image(str(eda_path), caption="Dataset Analysis", use_container_width=True)
+            # PERBAIKAN: Tanpa use_container_width
+            st.image(str(eda_path), caption="Dataset Analysis", width=700)
         except Exception as e:
             st.error(f"❌ Error loading EDA image: {e}")
         
@@ -669,12 +651,12 @@ with tab2:
                 sample_files = sorted(samples_dir.glob("sample_*.png"))
                 
                 if sample_files:
-                    # Display samples in grid (max 5)
+                    # Display samples in grid
                     cols = st.columns(min(len(sample_files), 5))
                     for idx, sample_file in enumerate(sample_files[:5]):
                         try:
                             with cols[idx]:
-                                st.image(str(sample_file), caption=f"Sample {idx+1}", use_container_width=True)
+                                st.image(str(sample_file), caption=f"Sample {idx+1}", width=150)
                         except Exception as e:
                             st.warning(f"Could not load {sample_file.name}")
             except Exception as e:
@@ -719,7 +701,8 @@ with tab2:
             height=500
         )
         
-        st.plotly_chart(fig, use_container_width=True)
+        # PERBAIKAN: Tanpa use_container_width
+        st.plotly_chart(fig)
     except Exception as e:
         st.error(f"❌ Error creating distribution chart: {e}")
 
@@ -746,7 +729,7 @@ with tab3:
             with col1:
                 st.markdown("#### 📊 Training Curves")
                 try:
-                    st.image(str(results_img), use_container_width=True)
+                    st.image(str(results_img), width=400)
                 except Exception as e:
                     st.error(f"❌ Error loading results image: {e}")
         
@@ -756,7 +739,7 @@ with tab3:
             with col2:
                 st.markdown("#### 🎯 Confusion Matrix")
                 try:
-                    st.image(str(confusion_img), use_container_width=True)
+                    st.image(str(confusion_img), width=400)
                 except Exception as e:
                     st.error(f"❌ Error loading confusion matrix: {e}")
         
@@ -843,7 +826,7 @@ with tab4:
                         for r in results_data
                     ])
                     
-                    st.dataframe(df_results, use_container_width=True)
+                    st.dataframe(df_results)
                     
                     # Statistics
                     total_detections = sum(r['detections'] for r in results_data)
