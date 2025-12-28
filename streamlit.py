@@ -8,32 +8,6 @@ import json
 import os
 import sys
 
-# ========== FIX: IMPORT TORCH DAN DEFINE CUSTOM LAYER ==========
-import torch
-import torch.nn as nn
-
-# Definisikan custom C3k2 layer
-class C3k2(nn.Module):
-    """C3 module with CSP bottleneck with 2 convolutions."""
-    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
-        super().__init__()
-        from ultralytics.nn.modules.block import Conv
-        c_ = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, c_, 1, 1)
-        self.cv2 = Conv(c1, c_, 1, 1)
-        self.cv3 = Conv(2 * c_, c2, 1)
-        self.m = nn.Sequential(*(Conv(c_, c_, 3, 1, g=g) for _ in range(n)))
-
-    def forward(self, x):
-        return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), 1))
-
-# Register custom layer sebelum import ultralytics
-import ultralytics.nn.modules.block as block_module
-if not hasattr(block_module, 'C3k2'):
-    block_module.C3k2 = C3k2
-    st.info("✅ Custom C3k2 layer registered successfully")
-# ========== END FIX ==========
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -231,58 +205,26 @@ MEDICAL_INFO = {
     'Segmental': 'Multiple fracture lines creating separate bone segments.'
 }
 
-# ========== FIX: IMPROVED MODEL LOADING FUNCTION ==========
+# UTILITY FUNCTIONS
+
 @st.cache_resource
 def load_model(model_path):
-    """Load YOLO model with custom layer handling"""
+    """Load YOLO model with caching"""
     try:
-        # Jika model default
-        if isinstance(model_path, str) and model_path in ["yolo11n.pt", "yolo11s.pt"]:
-            st.info(f"Loading {model_path}...")
+        if isinstance(model_path, str) and model_path == "yolo11s.pt":
             model = YOLO(model_path)
-            st.success(f"✅ {model_path} loaded successfully")
-            return model
-        
-        # Untuk custom model
-        model_path_str = str(model_path) if isinstance(model_path, Path) else model_path
-        
-        # Cek apakah file ada
-        if not os.path.exists(model_path_str):
-            st.warning(f"⚠️ Model file not found: {model_path_str}")
-            st.info("⚠️ Falling back to YOLO11n model")
-            return YOLO("yolo11n.pt")
-        
-        # Tampilkan loading message
-        with st.spinner(f"Loading custom model from {os.path.basename(model_path_str)}..."):
-            # Method 1: Coba load langsung dengan YOLO
-            try:
+        else:
+            model_path_str = str(model_path) if isinstance(model_path, Path) else model_path
+            if not os.path.exists(model_path_str):
+                st.error(f"❌ Model file not found: {model_path_str}")
+                st.warning("⚠️ Using default YOLO11s model as fallback")
+                model = YOLO("yolo11s.pt")
+            else:
                 model = YOLO(model_path_str)
-                st.success("✅ Custom model loaded successfully")
-                return model
-            except Exception as e1:
-                st.warning(f"⚠️ Standard loading failed: {str(e1)[:100]}...")
-                
-                # Method 2: Coba load dengan device CPU
-                try:
-                    model = YOLO(model_path_str, task='detect')
-                    st.success("✅ Custom model loaded with CPU device")
-                    return model
-                except Exception as e2:
-                    st.error(f"❌ Advanced loading failed: {str(e2)[:100]}...")
-                    
-                    # Method 3: Fallback ke model default
-                    st.warning("⚠️ Using YOLO11n as fallback model")
-                    return YOLO("yolo11n.pt")
-                    
+        return model
     except Exception as e:
-        st.error(f"❌ Critical error loading model: {e}")
-        # Return minimal working model
-        try:
-            return YOLO("yolo11n.pt")
-        except:
-            st.error("❌ Failed to load any model")
-            return None
-# ========== END FIX ==========
+        st.error(f"❌ Error loading model: {e}")
+        return None
 
 def get_category(class_name):
     """Get medical category for a class"""
@@ -331,7 +273,7 @@ def draw_detections(image, results, conf_threshold=0.25):
             category = get_category(class_name)
             
             # Draw box
-            draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
+            draw.rectangle([x1, y1, x2, y2], outline=color, width=4)
             
             # Draw label with background
             label = f"{class_name} {conf:.2f}"
@@ -397,12 +339,10 @@ st.sidebar.markdown("## 🦴Bone Fracture Detection")
 st.sidebar.markdown("**YOLOv11 Medical AI System**")
 st.sidebar.markdown("---")
 
-# ========== FIX: MODEL SELECTION WITH COMPATIBLE OPTIONS ==========
+# Model selection
 st.sidebar.markdown("### 🤖 Model Settings")
 
-# Gunakan model yang lebih compatible sebagai default
-model_options = ["yolo11n.pt", "yolo11s.pt"]  # Nano lebih compatible
-
+model_options = ["yolo11s.pt"]
 models_dir = ROOT / "output_fixed"
 
 if models_dir.exists():
@@ -412,41 +352,26 @@ if models_dir.exists():
                 model_path = output_folder / "03_models" / "best_model.pt"
                 if model_path.exists():
                     timestamp = output_folder.name
-                    # Tambahkan dengan warning untuk custom model
-                    model_options.append(f"⚠️ Custom Model ({timestamp}) - May have compatibility issues")
+                    model_options.append(f"Trained Model ({timestamp})")
     except Exception as e:
         st.sidebar.warning(f"⚠️ Error scanning models: {e}")
-
-# Default ke model yang paling compatible
-default_model = "yolo11n.pt" if "yolo11n.pt" in model_options else model_options[0]
-
+                
 selected_model_display = st.sidebar.selectbox(
     "Select Model",
     model_options,
-    index=model_options.index(default_model) if default_model in model_options else 0,
-    help="YOLO11n is most compatible, YOLO11s is more accurate. Custom models may have compatibility issues."
+    help="Choose pre-trained or your custom trained model"
 )
 
 # Get actual model path
-if selected_model_display == "yolo11n.pt":
-    selected_model = "yolo11n.pt"
-elif selected_model_display == "yolo11s.pt":
+if selected_model_display == "yolo11s.pt":
     selected_model = "yolo11s.pt"
 else:
     try:
         timestamp = selected_model_display.split("(")[1].split(")")[0]
         selected_model = models_dir / timestamp / "03_models" / "best_model.pt"
-        st.sidebar.warning("⚠️ Using custom trained model - compatibility not guaranteed")
     except:
-        selected_model = "yolo11n.pt"  # Fallback
-        st.sidebar.warning("⚠️ Failed to parse custom model path. Using YOLO11n as fallback")
-
-# Tampilkan info model yang dipilih
-if "Custom Model" in selected_model_display:
-    st.sidebar.error("⚠️ Custom model selected - may have C3k2 compatibility issues")
-else:
-    st.sidebar.success(f"✅ Selected: {selected_model_display}")
-# ========== END FIX ==========
+        selected_model = "yolo11s.pt"
+        st.sidebar.warning("⚠️ Using default model")
 
 # Detection settings
 st.sidebar.markdown("### ⚙️ Detection Settings")
@@ -498,8 +423,6 @@ with st.sidebar.expander("ℹAbout"):
     
     **Developer:** Nadia and Nazril
     **Version:** 1.0
-    
-    **Note:** Custom trained models may have compatibility issues with C3k2 layers.
     """)
 
 # MAIN APP
@@ -559,34 +482,24 @@ with tab1:
                         model = load_model(selected_model)
                         
                         if model is not None:
-                            # Info tentang model yang digunakan
-                            st.info(f"Using model: {selected_model_display}")
-                            
                             # Run inference
-                            try:
-                                results = model.predict(
-                                    source=image,
-                                    conf=conf_threshold,
-                                    iou=iou_threshold,
-                                    verbose=False,
-                                    imgsz=640  # Standard size for better compatibility
-                                )
-                                
-                                # Draw detections
-                                img_with_detections, detections = draw_detections(
-                                    image, results, conf_threshold
-                                )
-                                
-                                # Store in session state
-                                st.session_state.detections = detections
-                                st.session_state.result_image = img_with_detections
-                                
-                                st.success(f"Detection complete! Found {len(detections)} object(s)")
-                            except Exception as predict_error:
-                                st.error(f"❌ Error during prediction: {predict_error}")
-                                st.info("Try using a different model (YOLO11n recommended)")
-                        else:
-                            st.error("❌ Failed to load model. Please try another model.")
+                            results = model.predict(
+                                source=image,
+                                conf=conf_threshold,
+                                iou=iou_threshold,
+                                verbose=False
+                            )
+                            
+                            # Draw detections
+                            img_with_detections, detections = draw_detections(
+                                image, results, conf_threshold
+                            )
+                            
+                            # Store in session state
+                            st.session_state.detections = detections
+                            st.session_state.result_image = img_with_detections
+                            
+                            st.success(f"Detection complete! Found {len(detections)} object(s)")
             except Exception as e:
                 st.error(f"❌ Error processing image: {e}")
     
@@ -876,8 +789,7 @@ with tab4:
                             source=image,
                             conf=conf_threshold,
                             iou=iou_threshold,
-                            verbose=False,
-                            imgsz=640
+                            verbose=False
                         )
                         
                         _, detections = draw_detections(image, results, conf_threshold)
@@ -945,12 +857,6 @@ with tab5:
     ### Overview
     This application uses **YOLOv11** deep learning model to detect and classify bone fractures in X-ray images.
     
-    ### Model Compatibility Notes
-    ⚠️ **Important**: If you encounter "C3k2" errors:
-    1. Use **YOLO11n** model (most compatible)
-    2. Custom trained models may have architecture compatibility issues
-    3. Ensure Ultralytics version matches training environment
-    
     ### Supported Fracture Types (10 Classes)
     
     #### 🟢 Normal
@@ -974,7 +880,6 @@ with tab5:
     #### 1️⃣ Single Image Detection
     - Go to **Detection** tab
     - Upload X-ray image (JPG/PNG)
-    - **Select YOLO11n model for best compatibility**
     - Adjust confidence threshold if needed
     - Click "Run Detection"
     - View results and download if needed
@@ -985,16 +890,29 @@ with tab5:
     - Process all at once
     - Export results as CSV
     
-    ### Troubleshooting C3k2 Errors
-    1. **Use YOLO11n model** instead of custom models
-    2. **Update Ultralytics**: `pip install ultralytics==8.2.30`
-    3. **Re-export your trained model** to ONNX format
-    4. **Check requirements.txt** for version compatibility
+    ### Model Information
+    - **Architecture**: YOLOv11s
+    - **Input Size**: 224x224 pixels
+    - **Classes**: 10 fracture types
+    - **Format**: RGB X-ray images
+    
+    ### Performance Metrics
+    - **mAP50**: Mean Average Precision at IoU 0.5
+    - **mAP50-95**: Mean Average Precision at IoU 0.5-0.95
+    - **Precision**: True Positive Rate
+    - **Recall**: Detection Rate
+    
+    ### Tips for Best Results
+    1. ✅ Use clear, high-quality X-ray images
+    2. ✅ Ensure proper image orientation
+    3. ✅ Adjust confidence threshold based on use case
+    4. ✅ Review all detections, especially borderline cases
+    5. ⚠️ This is an AI assistant tool, not a replacement for professional medical diagnosis
     
     ### System Requirements
-    - Python 3.11+
-    - Ultralytics YOLOv11 (8.2.30 recommended)
-    - Streamlit 1.28+
+    - Python 3.11
+    - Ultralytics YOLOv11
+    - Streamlit
     - PIL, OpenCV, NumPy
     
     ### Contact & Support
@@ -1011,6 +929,5 @@ st.markdown("""
 <div style='text-align: center; color: #7f8c8d;'>
     <p>🦴 Bone Fracture Detection System v1.0</p>
     <p>Powered by YOLOv11 | Built with Streamlit</p>
-    <p style='font-size: 12px; color: #e74c3c;'>⚠️ Note: Use YOLO11n model for best compatibility</p>
 </div>
 """, unsafe_allow_html=True)
