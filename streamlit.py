@@ -19,26 +19,7 @@ from ultralytics import YOLO
 import plotly.express as px
 import plotly.graph_objects as go
 from collections import Counter
-from ultralytics.nn.modules.block import C3, Conv
-from ultralytics.nn.modules.conv import Conv as BaseConv
 
-# Define custom C3k2 layer
-class C3k2(nn.Module):
-    """C3 module with CSP bottleneck with 2 convolutions."""
-    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
-        super().__init__()
-        c_ = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, c_, 1, 1)
-        self.cv2 = Conv(c1, c_, 1, 1)
-        self.cv3 = Conv(2 * c_, c2, 1)  # optional act=FReLU(c2)
-        self.m = nn.Sequential(*(Conv(c_, c_, 3, 1, g=g) for _ in range(n)))
-
-    def forward(self, x):
-        return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), 1))
-
-# Register custom layer dengan monkey patching
-import ultralytics.nn.modules.block as block_module
-block_module.C3k2 = C3k2
 # PAGE CONFIG
 st.set_page_config(
     page_title="BFD-ID (Bone Fracture Detection)",
@@ -950,4 +931,5 @@ st.markdown("""
     <p>Powered by YOLOv11 | Built with Streamlit</p>
 </div>
 """, unsafe_allow_html=True)
+
 
